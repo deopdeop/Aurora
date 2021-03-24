@@ -16,7 +16,7 @@ import (
 var err error
 
 func main() {
-	file, err := ioutil.ReadFile("config.yaml")
+	file, err := ioutil.ReadFile("config.yml")
 	if err != nil {
 		log.Fatal("You need to add a config")
 	}
@@ -28,7 +28,6 @@ func main() {
 	} else if config.YAML.WSPrefix == "" {
 		log.Fatal("You need to specify an ws prefix")
 	} else {
-		// There is a security bug here where the other users sites they are accessing will get leaked
 		http.HandleFunc(config.YAML.HTTPPrefix, proxy.HTTPServer)
 		http.HandleFunc(config.YAML.WSPrefix, proxy.WSServer)
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -86,17 +85,17 @@ func main() {
 		})
 	}
 
-	if config.YAML.Port == "" {
+	if config.YAML.Port == 0 {
 		log.Fatal("You need to specify a port")
 	}
 
 	if config.YAML.Cert != "" && config.YAML.Key != "" {
-		err = http.ListenAndServeTLS(config.YAML.Port, config.YAML.Cert, config.YAML.Key, nil)
+		err = http.ListenAndServeTLS(fmt.Sprintf(":%d", config.YAML.Port), config.YAML.Cert, config.YAML.Key, nil)
 		if err != nil {
 			log.Fatal(err)
 		}
 	} else {
-		err = http.ListenAndServe(config.YAML.Port, nil)
+		err = http.ListenAndServe(fmt.Sprintf(":%d", config.YAML.Port), nil)
 		if err != nil {
 			log.Fatal(err)
 		}

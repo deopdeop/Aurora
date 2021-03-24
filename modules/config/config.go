@@ -16,7 +16,7 @@ type y struct {
 	   var WRTCPrefix String
 	*/
 
-	Port string `yaml:"Port"`
+	Port int `yaml:"Port"`
 
 	Cert string `yaml:"Cert"`
 	Key  string `yaml:"Key"`
@@ -25,7 +25,6 @@ type y struct {
 }
 
 var (
-	Scheme   string
 	URL      *url.URL
 	ProxyURL *url.URL
 

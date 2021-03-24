@@ -1,75 +1,119 @@
 // TODO: Remove space indent
 
-const config = {httpprefix: '{{.HTTPPrefix}}', wsprefix: '{{.WSPrefix}}', url: new URL('{{.URL}}'), proxyurl: new URL('{{.ProxyURL}}')}
+const config = {httpprefix: '{{.HTTPPrefix}}', wsprefix: '{{.WSPrefix}}', url: new URL('{{.URL}}'), proxyurl: new URL('{{.ProxyURL}}')};
 
-// TODO: Rewrite html and css
+const b64URL = {
+	encode: url => btoa(url).replace(/\+/g, '-').replace(/\//g, '_'),
+	decode: url => atob(url.replace(/\-/g, '+').replace(/\_/g, '/'))
+};
+
 const rewrites = {
 	isUrl: url => {
-		try {
-			return Boolean(new URL(url));
-		} catch (err) {
-			return false
-		}
+			switch (true) {
+			case url.startsWith(config.httpprefix):
+				break;
+			case url.startsWith(config.wsprefix):
+				break;
+			default:
+				try {
+					return Boolean(new URL(url));
+				} catch (err) {
+					return false;
+				}
+
+				break;
+			}
 	},
 	url: url => {
-		if (rewrites.isUrl(url) == false) {
-			pURL = config.proxyurl.toString()
-			pathSplit = pURL.split('/')
+		switch (true) {
+		case rewrites.isUrl(url) == true:
+			url = config.httpprefix + b64URL.encode(url);
 
-			var split
+			break;
+		case rewrites.isUrl(url) == false:
+			var split;
 		
+			// TODO: Handle ./
 			switch (true) {
 			case url.split(':').length>=2:
+				break;
 			case url.split('../').length=2:
-				split = url.split('../')
-				url = config.url.origin + config.httpprefix+btoa(pURL.splice(0, len(split).join('/'))+split.pop());
+				var split = url.split('../');
+				url = config.httpprefix + b64URL.encode(config.proxyurl.href.split('/').splice(0, len(split)).join('/')+split.pop());
+
+				break;
 			case url.startsWith('//'):
-				split = url.split('/')
-				url = config.url.origin + config.httpprefix+btoa(split.pop());
+				url = config.httpprefix + b64URL.encode(config.proxyurl.protocol + url.split('/').pop());
+
+				break;
 			case url.startsWith('/'):
-				url = config.url.origin + config.httpprefix+btoa(pURL.origin + url);
+				url = config.httpprefix + b64URL.encode(config.proxyurl.origin + url);
+				
+				break;
 			default:
-				url = config.url.origin + config.httpprefix+btoa(pURL + '/' + url);
+				var split = config.proxyurl.href.split('.');
+				url = config.httpprefix + b64URL.encode(split.slice(0, -len(split)+1).join('') + '/' + url);
+
+				break;
 			}
-		} else if (rewrites.isUrl(url) == true) {
-			url = config.url.origin + config.httpprefix + btoa(url);
 		}
 
 		return url;
 	},
+	cookie: cookie => {
+
+	},
 	html: html => {
-		// TODO: Avoid selecting id
 		var dom = new DOMParser().parseFromString(html, 'text/html'), sel = dom.querySelector('*');
 
 		sel.querySelectorAll('*').forEach(node => {
 			switch(node.tagName) {
-			case 'SCRIPT':
-				node.textContent = "{let document=audocument;" + node.textContent + "}"
-				break;
 			case 'STYLE':
-				node.textContent = node.textContent.replace(/(?<=url\((?<a>["']?)).*?(?=\k<a>\))/gi, rewrites.url)
+				node.textContent = rewrites.css(node.textContent);
+
+				break;
+			case 'SCRIPT':
+				node.textContent =  rewrites.js(node.textContent);
+
 				break;
 			}
+
 			node.getAttributeNames().forEach(attr => {
-				switch (attr) {
-				case 'script':
-					node.setAttribute("{let document=audocument;" + node.getAttribute(attr) + "}")
-				case 'style':
-					node.setAttribute(node.getAttribute(attr).replace(/(?<=url\((?<a>["']?)).*?(?=\k<a>\))/gi, rewrites.url))
-				// TODO: Handle other attributes see server side rewrites for reference
+				switch (true) {
+				case attr == "href" || attr == "src" || attr == "poster" || attr == "data":
+					node.setAttribute(rewrites.url(node.getAttribute(attr)));
+
+					break;
+				// case attr == 'srcset':
+				case attr == 'srcdoc':
+					node.setAttribute(rewrites.html(node.getAttribute(attr)));
+
+					break;
+				case attr == 'style':
+					node.setAttribute(rewrites.css(node.getAttribute(attr)));
+
+					break;
+				case attr.startsWith('on'):
+					node.setAttribute(rewrites.js(node.getAttribute(js)));
+
+					break;
 				}
 			});
 		});
 
 		return sel.innerHTML
 	},
+	css: css => css.replace(/(?<=url\((?<a>["']?)).*?(?=\k<a>\))/gi, rewrites.url),
+	js: js => "{let document=audocument;" + js + "}"
 };
 
 audocument = new Proxy(document, {
 	get: (target, prop) => {
 		switch (prop) {
 		case 'location':
-			return config.proxyurl
+			return config.proxyurl;
+		case 'referer' || 'URL':
+			return rewrites.url(target[prop])
 		default:
 			Reflect.get(target, prop);
 		}
@@ -77,13 +121,18 @@ audocument = new Proxy(document, {
 		return typeof(prop=Reflect.get(target,prop))=='function'?prop.bind(target):prop;
 	},
 	set: (target, prop, value, reciever) => {
-		target[prop] = value;
+		switch (prop) {
+		case 'cookie':
+			target[prop] = rewrites.cookie(value);
+		default:
+			target[prop] = value;
+		}
 	}
 });
 
 document.write = new Proxy(document.write, {
 	apply: (target, thisArg, args) => {
-        html = rewrites.html(args[0])
+        html = rewrites.html(args[0]);
 
 		return Reflect.apply(target, thisArg, args);
     }
@@ -92,6 +141,7 @@ document.write = new Proxy(document.write, {
 const historyHandler = {
 	apply: (target, thisArg, args) => {
 		args[2] = rewrites.url(args[2]);
+
 		return Reflect.apply(target, thisArg, args);
 	}
 };
@@ -117,8 +167,8 @@ window.fetch = new Proxy(window.fetch, {
 
 window.XMLHttpRequest.prototype.open = new Proxy(window.XMLHttpRequest.prototype.open, {
 	apply: (target, thisArg, args) => {
-		args[1] = rewrites.url(args[1])
-		
+		args[1] = rewrites.url(args[1]);
+
 		return Reflect.apply(target, thisArg, args);
     }
 });

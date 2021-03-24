@@ -14,7 +14,7 @@ import (
 )
 
 // Server used for http proxy
-// TODO: Use xor based urs depending on seed given in cookie
+// TODO: Encode queries in base64 both the key and value same with fragment
 func HTTPServer(w http.ResponseWriter, r *http.Request) {
 	var err error
 
@@ -26,21 +26,40 @@ func HTTPServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var scheme string
 	if r.TLS == nil {
-		config.Scheme = "http"
+		scheme = "http"
 	} else if r.TLS != nil {
-		config.Scheme = "https"
+		scheme = "https"
 	}
 
-	config.URL, err = url.Parse(fmt.Sprintf("%s://%s%s", config.Scheme, r.Host, r.RequestURI))
+	for _, userAgent := range config.YAML.BlockedUserAgents {
+		if userAgent == r.UserAgent() {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprintf(w, "401, not authorized")
+			return
+		}
+	}
+
+	for _, userAgent := range config.YAML.BlockedUserAgents {
+		if userAgent == r.UserAgent() {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprintf(w, "401, not authorized")
+			return
+		}
+	}
+
+	for _, queries := range r.URL.Query() {
+	}
+
+	config.URL, err = url.Parse(fmt.Sprintf("%s://%s%s", scheme, r.Host, r.RequestURI))
 	if err != nil || config.URL.Scheme == "" || config.URL.Host == "" {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "500, %s", fmt.Sprintf("Unable to parse url, %s", config.ProxyURL.String()))
+		fmt.Fprintf(w, "500, %s", fmt.Sprintf("Unable to parse url, %s", fmt.Sprintf("%s://%s%s", scheme, r.Host, r.RequestURI)))
 		return
 	}
 
-	proxyURLB64 := config.URL.Path[len(config.YAML.HTTPPrefix):]
-	proxyURLBytes, err := base64.URLEncoding.DecodeString(proxyURLB64)
+	proxyURLBytes, err := base64.URLEncoding.DecodeString(config.URL.Path[len(config.YAML.HTTPPrefix):])
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "500, %s", err)
@@ -113,12 +132,12 @@ func HTTPServer(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(contentType, "text/css"):
 		respBodyInterface := rewrites.CSS(resp.Body)
 		resp.Body = respBodyInterface.(io.ReadCloser)
-	case strings.HasPrefix(contentType, "application/javascript") || strings.HasPrefix(contentType, "text/javascript"):
+	case strings.HasPrefix(contentType, "application/javascript") || strings.HasPrefix(contentType, "application/x-javascript") || strings.HasPrefix(contentType, "text/javascript"):
 		resp.Body = rewrites.JS(resp.Body)
 	case strings.HasPrefix(contentType, "image/svg"):
 		// TODO: Rewrite SVG
 	case strings.HasPrefix(contentType, "text/json"):
-		if r.URL.Path == "/manifest.json" {
+		if strings.HasPrefix(config.ProxyURL.Path, "/manifest.json") {
 			// TODO Rewrite
 		}
 	}
