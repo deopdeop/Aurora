@@ -9,20 +9,18 @@ const b64URL = {
 
 const rewrites = {
 	isUrl: url => {
-			switch (true) {
-			case url.startsWith(config.httpprefix):
-				break;
-			case url.startsWith(config.wsprefix):
-				break;
-			default:
-				try {
-					return Boolean(new URL(url));
-				} catch (err) {
-					return false;
-				}
-
-				break;
+		switch (true) {
+		case url.startsWith(config.httpprefix):
+			break;
+		case url.startsWith(config.wsprefix):
+			break;
+		default:
+			try {
+				return Boolean(new URL(url));
+			} catch (err) {
+				return false;
 			}
+		}
 	},
 	url: url => {
 		switch (true) {
@@ -53,15 +51,30 @@ const rewrites = {
 			default:
 				var split = config.proxyurl.href.split('.');
 				url = config.httpprefix + b64URL.encode(split.slice(0, -len(split)+1).join('') + '/' + url);
-
-				break;
 			}
 		}
 
 		return url;
 	},
 	cookie: cookie => {
+		cookie = cookie.split("; ").forEach(exp => {
+			map = exp.split("=")
 
+			if (map.length === 2) {
+				switch (map[0]) {
+				case "domain":
+					map[1] = config.proxyurl.origin
+
+					break;
+				case "path":
+					map[1] = config.proxyurl.path
+
+					break;
+				}
+
+				map.join("=")
+			}
+		}).join("; ")
 	},
 	html: html => {
 		var dom = new DOMParser().parseFromString(html, 'text/html'), sel = dom.querySelector('*');
@@ -119,14 +132,6 @@ audocument = new Proxy(document, {
 		}
 
 		return typeof(prop=Reflect.get(target,prop))=='function'?prop.bind(target):prop;
-	},
-	set: (target, prop, value, reciever) => {
-		switch (prop) {
-		case 'cookie':
-			target[prop] = rewrites.cookie(value);
-		default:
-			target[prop] = value;
-		}
 	}
 });
 

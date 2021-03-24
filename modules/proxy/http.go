@@ -33,26 +33,22 @@ func HTTPServer(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 
-	for _, userAgent := range config.YAML.BlockedUserAgents {
-		if userAgent == r.UserAgent() {
-			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprintf(w, "401, not authorized")
-			return
+	query := ""
+	i := 0
+	for key, val := range r.URL.Query() {
+		valStr := strings.Join(strings.Split(strings.Join(val, ""), " "), "+")
+
+		// TODO: Replace whitespace with +
+		if i == 0 {
+			query += fmt.Sprintf("?%s=%s", key, valStr)
+		} else {
+			query += fmt.Sprintf("&%s=%s", key, valStr)
 		}
+
+		i++
 	}
 
-	for _, userAgent := range config.YAML.BlockedUserAgents {
-		if userAgent == r.UserAgent() {
-			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprintf(w, "401, not authorized")
-			return
-		}
-	}
-
-	for _, queries := range r.URL.Query() {
-	}
-
-	config.URL, err = url.Parse(fmt.Sprintf("%s://%s%s", scheme, r.Host, r.RequestURI))
+	config.URL, err = url.Parse(fmt.Sprintf("%s://%s%s%s", scheme, r.Host, r.RequestURI, query))
 	if err != nil || config.URL.Scheme == "" || config.URL.Host == "" {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "500, %s", fmt.Sprintf("Unable to parse url, %s", fmt.Sprintf("%s://%s%s", scheme, r.Host, r.RequestURI)))
@@ -66,7 +62,7 @@ func HTTPServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	config.ProxyURL, err = url.Parse(string(proxyURLBytes))
+	config.ProxyURL, err = url.Parse(string(proxyURLBytes) + query + r.URL.Fragment)
 	if err != nil || config.ProxyURL.Scheme == "" || config.ProxyURL.Host == "" {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, fmt.Sprintf("500, %s", fmt.Sprintf("Unable to parse url, %s", string(proxyURLBytes))))
@@ -85,7 +81,12 @@ func HTTPServer(w http.ResponseWriter, r *http.Request) {
 		IdleConnTimeout: 10 * time.Second,
 	}
 
-	client := &http.Client{Transport: tr}
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+		Transport: tr,
+	}
 
 	req, err := http.NewRequest("GET", config.ProxyURL.String(), nil)
 	if err != nil {

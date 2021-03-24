@@ -48,6 +48,10 @@ func Header(key string, vals []string) []string {
 				}
 
 				val2 = strings.Join(split2, "=")
+			case "Location":
+				val2 = config.URL.Scheme + "://" + config.URL.Host + URL(val2)
+			case "Content-Length":
+			case "Referrer":
 			}
 			split1[j] = val2
 		}
@@ -64,18 +68,24 @@ func URL(val string) string {
 
 	if err != nil || url.Scheme == "" || url.Host == "" {
 		log.Println("URL Invalid: " + val)
+		split1 := strings.Split(val, "/")
 		switch true {
-		case len(strings.Split(val, ":")) >= 2:
+		case strings.HasPrefix(val, "data:") || strings.HasPrefix(val, "javascript:"): // TODO: Add more
 			log.Println("Protocol url: " + val)
 		case strings.HasPrefix(val, "//"):
 			split := strings.Split(val, "/")
 			val = fmt.Sprintf("%s%s", config.YAML.HTTPPrefix, base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%s://%s", config.ProxyURL.Scheme, split[len(split)-1]))))
 			log.Println("// url: " + val)
 		case strings.HasPrefix(val, "/"):
-			val = fmt.Sprintf("%s%s", config.YAML.HTTPPrefix, base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%s://%s/%s", config.ProxyURL.Scheme, config.ProxyURL.Host, val))))
+			val = fmt.Sprintf("%s%s", config.YAML.HTTPPrefix, base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%s://%s%s", config.ProxyURL.Scheme, config.ProxyURL.Host, val))))
 			log.Println("/ url: " + val)
 		default:
-			val = fmt.Sprintf("%s%s", config.YAML.HTTPPrefix, base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%s/%s", config.ProxyURL.String(), val))))
+			ext := split1[len(split1)-1]
+			if len(strings.Split(ext, ".")) >= 2 {
+				val = fmt.Sprintf("%s%s", config.YAML.HTTPPrefix, base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s", config.ProxyURL.String()[:len(ext)], val))))
+				log.Println("url: " + val)
+			}
+			val = fmt.Sprintf("%s%s", config.YAML.HTTPPrefix, base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s", config.ProxyURL.String(), val))))
 			log.Println("url: " + val)
 		}
 	} else {
@@ -87,14 +97,9 @@ func URL(val string) string {
 	return val
 }
 
-// TODO: Send multiple key and values in at the same time because for example how would it know about this?
-// <meta http-equiv="refresh" content="3;url=https://www.mozilla.org">
-// See https://www.w3schools.com/Tags/att_object_usemap.asp
-// Add usemap
 func internalHTML(key string, val string) string {
 	switch true {
-	// See https://stackoverflow.com/questions/28652648/how-to-use-external-svg-in-html and http://bl.ocks.org/clhenrick/0b73208409a14144e1f5
-	case key == "href" || key == "src" || key == "poster" || key == "action" || key == "formaction" || key == "data":
+	case key == "href" || key == "src" || key == "poster" || key == "action" || key == "formaction":
 		val = URL(val)
 	case key == "srcset":
 		split := strings.Split(val, " ")
@@ -141,7 +146,12 @@ func HTML(body io.ReadCloser) io.ReadCloser {
 		case html.TextToken:
 			switch true {
 			case isScript:
-				token.Data = fmt.Sprintf("{let document=audocument;%s}</script>", token.Data)
+				// TODO: Avoid this
+				if token.Data == "" {
+					token.Data = "</script>"
+				} else {
+					token.Data = fmt.Sprintf("{let document=audocument;%s}</script>", token.Data)
+				}
 				out += token.Data
 				isScript = false
 			case isStyle:
@@ -155,7 +165,7 @@ func HTML(body io.ReadCloser) io.ReadCloser {
 		case html.StartTagToken:
 			attr := ""
 			for _, elm := range token.Attr {
-				if elm.Key != "integrity" {
+				if elm.Key != "integrity" || elm.Val != "" {
 					// TODO: Delete directly instad
 					attrSel := internalHTML(elm.Key, elm.Val)
 					attr += attrSel
@@ -200,6 +210,7 @@ func HTML(body io.ReadCloser) io.ReadCloser {
 	return body
 }
 
+// Doesn't work with inline
 func CSS(bodyInterface interface{}) interface{} {
 	var tokenizer *css.Lexer
 
